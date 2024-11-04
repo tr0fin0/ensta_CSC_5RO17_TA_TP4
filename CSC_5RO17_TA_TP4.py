@@ -150,8 +150,8 @@ def compute_rigid_transformation(
 
     U, S, V = np.linalg.svd(H)
 
-    R = V @ U.T
-    T = ref - R @ points
+    R = V.T @ U.T
+    T = centroid_ref - R @ centroid_points
 
     return R, T
 
@@ -354,8 +354,8 @@ def main():
     visualization = False
     decimation = False
     operations = False
-    transforms = False
-    ICP = False
+    transforms = True
+    ICP = True
 
 
     # questions execution
