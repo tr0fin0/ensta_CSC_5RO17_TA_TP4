@@ -48,18 +48,18 @@ def show_cloud(
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
 
-    ax.plot(points[0], points[1], points[2], '.', label=f'{points.shape[1]} points')
+    ax.scatter(
+        points[0], points[1], points[2], s=0.1, c='b', marker='o', label=f'{points.shape[1]} points'
+    )
 
-    ax.set_xlabel('x')
-    ax.set_ylabel('y')
-    ax.set_zlabel('z')
+    ax.set_xlabel('x', fontsize=12)
+    ax.set_ylabel('y', fontsize=12)
+    ax.set_zlabel('z', fontsize=12)
 
-    # ax.set_xlim(-0.25, +0.25)
-    # ax.set_ylim(-0.25, +0.25)
-    # ax.set_zlim(-0.25, +0.25)
+    ax.view_init(elev=30, azim=-45)
 
-    ax.set_title(f'{title}')
-    ax.legend()
+    ax.set_title(f'{title}', fontsize=14)
+    ax.legend(loc='upper left')
 
     plt.tight_layout()
 
@@ -85,7 +85,6 @@ def compute_ICP(data, ref, max_iter, RMS_threshold):
         T = (d x 1) translation vector aligning data on ref
         data_aligned = data aligned on ref
     '''
-
     # Variable for aligned data
     data_aligned = np.copy(data)
 
@@ -99,7 +98,6 @@ def compute_ICP(data, ref, max_iter, RMS_threshold):
     RMS_list = []
 
     for i in range(max_iter):
-
         # Find the nearest neighbors
         distances, indices = search_tree.query(data_aligned.T, return_distance=True)
 
@@ -126,32 +124,35 @@ def compute_ICP(data, ref, max_iter, RMS_threshold):
 
 
 def compute_rigid_transformation(
-        points: np.ndarray[float], ref: np.ndarray[float]
+        cloud: np.ndarray[float], reference: np.ndarray[float]
     ) -> list[np.ndarray[float], np.ndarray[float]]:
     '''
-    Computes the least-squares best-fit transform that maps corresponding points data to ref.
-    Inputs :
-        data = (d x N) matrix where "N" is the number of point and "d" the dimension
-         ref = (d x N) matrix where "N" is the number of point and "d" the dimension
+    Computes the least-squares best-fit transform that maps corresponding cloud to reference.
+
+    Note: reference = R * points + T
+
+    Args :
+        cloud = (d x N) points matrix where "N" is the number of point and "d" the dimension
+        reference = (d x N) reference matrix where "N" is the number of point and "d" the dimension
+
     Returns :
            R = (d x d) rotation matrix
            T = (d x 1) translation vector
-           Such that R * data + T is aligned on ref
     '''
     # centroides
-    centroid_ref = np.mean(ref, axis=1).reshape((3, 1))
-    centroid_points = np.mean(points, axis=1).reshape((3, 1))
+    centroid_reference = np.mean(reference, axis=1).reshape((3, 1))
+    centroid_cloud = np.mean(cloud, axis=1).reshape((3, 1))
 
     # centering
-    ref = ref - centroid_ref
-    points = points - centroid_points
+    centered_reference = reference - centroid_reference
+    centered_cloud = cloud - centroid_cloud
 
-    H = points.dot(ref.T)
+    H = centered_cloud.dot(centered_reference.T)
 
     U, S, V = np.linalg.svd(H)
 
     R = V.T @ U.T
-    T = centroid_ref - R @ centroid_points
+    T = centroid_reference - R @ centroid_cloud
 
     return R, T
 
@@ -197,8 +198,13 @@ def get_paths(name: str = 'bunny') -> list[str]:
 
         case 'NOTRE_DAME_DES_CHAMPS_1':
             original = os.path.abspath(os.path.join(os.getcwd(), '../data/Notre_Dame_Des_Champs_1.ply'))
-            pertubed = os.path.abspath(os.path.join(os.getcwd(), '../data/Notre_Dame_Des_Champs_1.ply'))
-            returned = os.path.abspath(os.path.join(os.getcwd(), '../data/Notre_Dame_Des_Champs_1.ply'))
+            pertubed = os.path.abspath(os.path.join(os.getcwd(), '../data/Notre_Dame_Des_Champs_2.ply'))
+            returned = os.path.abspath(os.path.join(os.getcwd(), '../data/Notre_Dame_Des_Champs_returned.ply'))
+
+        case 'NOTRE_DAME_DES_CHAMPS_1_DECIMATED':
+            original = os.path.abspath(os.path.join(os.getcwd(), '../data/NOTRE_DAME_DES_CHAMPS_1_decimated_for_1000.ply'))
+            pertubed = os.path.abspath(os.path.join(os.getcwd(), '../data/NOTRE_DAME_DES_CHAMPS_2_decimated_for_1000.ply'))
+            returned = None
 
         case _:
             return None, None, None
@@ -244,11 +250,18 @@ def Q2(cloud_name: str, save: bool) -> None:
     original_path, _, _ = get_paths(cloud_name)
     original_cloud = read_cloud(original_path)
 
+    cloud_name = 'NOTRE_DAME_DES_CHAMPS_2'
+
     for method in ['for', 'np']:
         for k in [10, 1000]:
             decimated_cloud = decimate(original_cloud, k=k, method=method)
 
             show_cloud(decimated_cloud, title=f'{cloud_name}_decimated_{method}_{k}', save=save)
+
+            decimated_path = os.path.abspath(
+                os.path.join(os.getcwd(), f'../data/{cloud_name}_decimated_{method}_{k}.ply')
+            )
+            write_cloud(decimated_cloud, decimated_path)
 
 
 def Q3(cloud_name: str, save: bool) -> None:
@@ -309,13 +322,16 @@ def Q4(cloud_name: str, save: bool) -> None:
     rotation, translation = compute_rigid_transformation(pertubed_cloud, original_cloud)
     returned_cloud = rotation.dot(pertubed_cloud) + translation
 
+    print(translation)
+    print(rotation)
+
     show_cloud(returned_cloud, title=f'{cloud_name}_transformation', save=save)
     write_cloud(returned_cloud, returned_path)
 
     # print overall results
     print('Average RMS between points :')
-    print(f'RMS pertubed = {RMS(pertubed_cloud, original_cloud):2.4f}')
-    print(f'RMS returned = {RMS(returned_cloud, original_cloud):2.4f}')
+    print(f'RMS pertubed = {RMS(pertubed_cloud, original_cloud):e}')
+    print(f'RMS returned = {RMS(returned_cloud, original_cloud):e}')
 
 
 def Q5(cloud_name: str, save: bool) -> None:
@@ -326,17 +342,49 @@ def Q5(cloud_name: str, save: bool) -> None:
         cloud_name (str) : cloud of points analyzed.
         save (bool) : save plot? Default value is False.
     """
-    original_path, _, returned_path = get_paths(cloud_name)
+    original_path, pertubed_path, _ = get_paths(cloud_name)
     original_cloud = read_cloud(original_path)
-    returned_cloud = read_cloud(returned_path)
+    pertubed_cloud = read_cloud(pertubed_path)
+
 
     # extract transformation via ICP
-    transformation, rotations, translations, neighbors, RMSs = compute_ICP(
-        returned_cloud, original_cloud, 25, 1e-4
-    )
+    max_iterations = [25, 50]
+    min_thresholds = [1e-4]
 
-    plt.plot(RMSs)
-    plt.show()
+    for max_iteration in max_iterations:
+        for min_threshold in min_thresholds:
+            transformations, rotations, translations, neighbors, rms_values = compute_ICP(
+                pertubed_cloud, original_cloud, max_iteration, min_threshold
+            )
+
+            plt.figure(figsize=(16,8))
+
+            plt.plot(rms_values, marker='o', linestyle='-', label=f'iterations: {len(rms_values)} with RMS = {np.min(rms_values):2.4f}')
+
+            x_ticks = np.arange(0, np.max(max_iterations), 1)
+            plt.xlabel('iteration')
+            plt.xticks(ticks=x_ticks, labels=x_ticks)
+            plt.xlim(x_ticks[0], x_ticks[-1])
+
+            y_ticks = np.array(range(0, 10, 1)) / 1e0
+            plt.ylabel('RMS value')
+            plt.yticks(ticks=y_ticks, labels=y_ticks)
+            plt.ylim(y_ticks[0], y_ticks[-1])
+
+            plt.axhline(y=min_threshold, color='red', linestyle='--', label=f"threshold: {min_threshold}")
+
+            plt.grid(True)
+            plt.legend(loc='upper right')
+            fig_title = f'RMS_ICP_{cloud_name}_{max_iteration}_{min_threshold}'
+            plt.title(f'{fig_title}')
+
+            plt.tight_layout()
+
+            if save:
+                file_path = os.path.abspath(os.path.join(os.getcwd(), f'../outputs/{fig_title}.png'))
+                plt.savefig(file_path, dpi=300)
+
+            plt.show()
 
 
 
@@ -346,16 +394,17 @@ def main():
 
     Note: execution should be done in folder this file is stored
     """
-    cloud_name = 'BUNNY'
-    # cloud_name = 'NOTRE_DAME_DES_CHAMPS_1'
+    # cloud_name = 'BUNNY'
+    cloud_name = 'NOTRE_DAME_DES_CHAMPS_1'
+    # cloud_name = 'NOTRE_DAME_DES_CHAMPS_1_DECIMATED'
 
     # execution variables
     save = False
     visualization = False
     decimation = False
     operations = False
-    transforms = True
-    ICP = True
+    transforms = False
+    ICP = False
 
 
     # questions execution
